@@ -3,6 +3,7 @@ cuda-python<13
 cython
 einops
 fairscale
+matplotlib
 muon-optimizer @ git+https://github.com/KellerJordan/Muon.git
 nbformat
 onnx

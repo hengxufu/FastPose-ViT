@@ -84,7 +84,13 @@ Then reference them when running evaluation or prediction commands, e.g.:
 To get FastPose-ViT up and running, you have several options depending on your environment and requirements. We recommend the Docker approach for consistency and ease of deployment.
 
 ### Option 1: Docker (Recommended)
-**Requirements**: NVIDIA GPU with CUDA 13 capability and nvidia-cuda-toolkit installed. Tested with Ubuntu 24.04+, on A100 clusters.
+**Requirements**: NVIDIA GPU (Ampere/Ada/Blackwell) with CUDA 12.8+ Toolkit and `nvidia-cuda-toolkit` installed. The LW-DETR CUDA extension is compiled at build time and requires `nvcc` to be present. Tested on A100 and RTX 5090.
+
+> **GPU Architecture (Blackwell / RTX 5090)**: The default `Dockerfile` sets `TORCH_CUDA_ARCH_LIST="8.0"` (Ampere). To support RTX 5090 (sm_120) or other newer GPUs, override it at build time:
+> ```bash
+> docker build --build-arg TORCH_CUDA_ARCH_LIST="8.0;12.0+PTX" -t FastPose-ViT .
+> ```
+> For a universal build covering most modern GPUs: `8.0;8.6;8.9;9.0;12.0+PTX`.
 
 Build the image:
 ```bash
@@ -103,21 +109,38 @@ docker run --gpus all --shm-size=8g --rm -it \
 ```
 
 ### Option 2: Manual Python Environment
-1. Install TensorRT 10.13:
+1. Install TensorRT 10.13 (only required for ONNX/TensorRT export and latency benchmarking):
     ```bash
-    pip install --break-system-packages --system --upgrade tensorrt
+    pip install --upgrade tensorrt
     ```
-2. Create a Python 3.12 virtual environment (venv, uv or conda)
-3. Install PyTorch first, then FastPose-ViT and its dependencies:
+2. Create a Python 3.10–3.13 virtual environment (venv, uv or conda). Python 3.12 is recommended.
+3. Install PyTorch 2.8 (cu129) first, then FastPose-ViT and its dependencies:
    ```bash
    pip install -r requirements-pytorch.txt
+   pip install -r requirements.txt
    pip install -e .
    ```
-4. Compile the LW-DETR CUDA extension (required for the object detector):
+   > **matplotlib** is required for the visualization scripts (`other_utils/visualization.py`) but is not a hard training dependency. Install it with `pip install matplotlib` if you plan to generate plots.
+4. Compile the LW-DETR CUDA extension (required for the object detector). This needs a CUDA Toolkit matching the PyTorch build (12.8–12.9 for cu129):
    ```bash
+   # Set CUDA environment (adjust version to your installed toolkit)
+   export CUDA_HOME=/usr/local/cuda-12.8
+   export PATH="$CUDA_HOME/bin:$PATH"
+   export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+   # Compile for your GPU architecture (RTX 5090 = sm_120; A100 = sm_80)
+   export TORCH_CUDA_ARCH_LIST="12.0+PTX"
+
    cd object_detector/LWDETR/lwdetr_ops
    chmod +x make.sh && ./make.sh
    cd ../../..
+   ```
+   > **RTX 5090 / Blackwell**: set `TORCH_CUDA_ARCH_LIST="12.0+PTX"`. Verify with `nvcc --version` that the toolkit is 12.8 or newer.
+   > **Headless build (no GPU present)**: `setup.py` will compile if `CUDA_HOME` is set, even if `torch.cuda.is_available()` is False. This is useful for CI/build environments without a GPU.
+
+5. Verify the installation:
+   ```bash
+   python -c "import torch; print('torch', torch.__version__, '| cuda', torch.version.cuda, '| available', torch.cuda.is_available())"
+   ls object_detector/LWDETR/MultiScaleDeformableAttention*.so
    ```
 
 ## Dataset Preparation
@@ -205,6 +228,17 @@ python3 src/train.py \
 --bbox_crop_percent 10
 ```
 Naturally, to train on the SPEED+ datasets, you just need to update the valued of the `DATASET` variable and the value of the argument `--dataset`.
+
+#### Resume from Checkpoint
+The checkpoint saved by `model.save()` contains **model weights only** (no optimizer state, LR scheduler state, or epoch number). To resume training from a previous checkpoint, pass the weights path via `--model_weights`:
+
+```bash
+python3 src/train.py \
+  ... (same arguments as above) ... \
+  --model_weights results/vit-b-16-384/model.pth
+```
+
+This performs a **warm restart**: the model loads the trained weights while the optimizer and LR scheduler start fresh. For a gentler fine-tuning, lower `--max_lr` (e.g. `1e-5`).
 </details>
 
 <details>

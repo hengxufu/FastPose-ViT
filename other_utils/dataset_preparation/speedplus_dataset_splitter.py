@@ -58,7 +58,7 @@ def create_speedplus_fixed_dataset(speedplusv2_path: str, new_path: str) -> None
             )
             dst_image = os.path.join(new_path, "images", split_name, item["filename"])
             if os.path.exists(src_image):
-                shutil.copy2(src_image, dst_image)
+                os.symlink(os.path.abspath(src_image), dst_image)
 
             # Add to new JSON data
             new_json_data.append(item)
@@ -84,7 +84,7 @@ def create_speedplus_fixed_dataset(speedplusv2_path: str, new_path: str) -> None
             src_image = os.path.join(images_dir, original_filename)
             dst_image = os.path.join(new_path, "images", "test", new_filename)
             if os.path.exists(src_image):
-                shutil.copy2(src_image, dst_image)
+                os.symlink(os.path.abspath(src_image), dst_image)
 
             # Update annotation with new filename
             new_item = item.copy()

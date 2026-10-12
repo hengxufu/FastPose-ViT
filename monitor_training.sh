@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 持续监控 FastPose-ViT 训练进度与剩余时间
+# 持续监控 FastPose-ViT 训练进度与剩余时间（中文界面）
 # 用法: bash monitor_training.sh [刷新间隔秒数，默认 10]
 
 set -u
@@ -23,9 +23,9 @@ fmt_time() {
 while true; do
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║         FastPose-ViT 训练监控  (GPU 3)                       ║${NC}"
+    echo -e "${CYAN}║         FastPose-ViT 训练监控面板  (GPU 3)                    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
-    echo -e "  刷新间隔: ${REFRESH}s   |   日志: $LOG_FILE"
+    echo -e "  刷新间隔: ${REFRESH} 秒   |   日志文件: $LOG_FILE"
     echo ""
 
     if [ ! -f "$LOG_FILE" ]; then
@@ -35,7 +35,6 @@ while true; do
     fi
 
     # 提取所有已完成 epoch 的训练耗时（去掉 epoch 1 的编译预热）
-    # 格式: "Epoch N [Train]: 6000it [MM:SS"
     mapfile -t TRAIN_TIMES < <(tr '\r' '\n' < "$LOG_FILE" \
         | grep -oE "Epoch [0-9]+ \[Train\]: ${TRAIN_ITERS}it \[[0-9]+:[0-9]+" \
         | sort -u \
@@ -54,7 +53,7 @@ while true; do
     if [ "$cnt" -gt 0 ]; then
         avg_train=$((avg_train / cnt))
     else
-        avg_train=341  # fallback
+        avg_train=341  # 备用默认值
     fi
     avg_val=38
     avg_epoch=$((avg_train + avg_val))
@@ -86,8 +85,7 @@ while true; do
     # 剩余时间估算
     completed_epochs=$((CUR_EPOCH - 1))
     if [ "$CUR_PHASE" = "Val" ]; then
-        # 当前 epoch 训练已完成，验证中
-        remaining_in_epoch=$(( avg_val - ( CUR_ITER * avg_val / ( VAL_ITERS > 0 ? VAL_ITERS : 1500 ) ) ))
+        remaining_in_epoch=$(( avg_val - ( CUR_ITER * avg_val / VAL_ITERS ) ))
     else
         remaining_in_epoch=$(( avg_train - ( CUR_ITER * avg_train / TRAIN_ITERS ) ))
     fi
@@ -99,33 +97,36 @@ while true; do
     finish_ts=$(( $(date +%s) + remaining_sec ))
     finish_str=$(date -d "@$finish_ts" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r "$finish_ts" "+%Y-%m-%d %H:%M:%S")
 
-    echo -e "  ${GREEN}当前状态:${NC}  Epoch ${YELLOW}${CUR_EPOCH}${NC}/${TOTAL_EPOCHS}  [${CUR_PHASE}]  ${iter_pct}%  (${CUR_ITER}/${TOTAL_ITER} it)"
+    # 阶段中文映射
+    if [ "$CUR_PHASE" = "Train" ]; then PHASE_CN="训练"; elif [ "$CUR_PHASE" = "Val" ]; then PHASE_CN="验证"; else PHASE_CN="$CUR_PHASE"; fi
+
+    echo -e "  ${GREEN}当前状态:${NC}  第 ${YELLOW}${CUR_EPOCH}${NC}/${TOTAL_EPOCHS} 轮  [${PHASE_CN}]  ${iter_pct}%  (${CUR_ITER}/${TOTAL_ITER} 迭代)"
     echo -e "  ${GREEN}总进度:${NC}    ${overall}%"
     echo ""
-    echo -e "  ${GREEN}当前 Loss:${NC}  total=${CUR_LOSS}  rot=${CUR_ROT}  trans=${CUR_TRANS}"
-    echo -e "  ${GREEN}速度:${NC}      ${CUR_SPEED:---}"
+    echo -e "  ${GREEN}当前损失:${NC}  总损失=${CUR_LOSS}  旋转=${CUR_ROT}  平移=${CUR_TRANS}"
+    echo -e "  ${GREEN}训练速度:${NC}  ${CUR_SPEED:---}"
     echo ""
-    echo -e "  ${GREEN}平均耗时:${NC}  Train=${avg_train}s  Val=${avg_val}s  Total=${avg_epoch}s/epoch"
-    echo -e "  ${GREEN}剩余轮数:${NC}  ${remaining_full_epochs} epochs + 当前轮剩余"
+    echo -e "  ${GREEN}平均耗时:${NC}  训练=${avg_train}秒  验证=${avg_val}秒  单轮=${avg_epoch}秒"
+    echo -e "  ${GREEN}剩余轮数:${NC}  ${remaining_full_epochs} 轮 + 当前轮剩余"
     echo -e "  ${GREEN}预计剩余:${NC}  ${YELLOW}${eta}${NC}"
     echo -e "  ${GREEN}预计完成:${NC}  ${finish_str}"
     echo ""
 
-    # 最近 3 个已完成 epoch 的训练 loss（取 epoch 末尾的 loss 值）
-    echo -e "${CYAN}  ── 最近 Epoch 训练 loss 概况 ──${NC}"
+    # 最近 3 个已完成 epoch 的训练 loss
+    echo -e "${CYAN}  ── 最近已完成轮次的训练损失 ──${NC}"
     tr '\r' '\n' < "$LOG_FILE" \
         | grep -oE "Epoch [0-9]+ \[Train\]: ${TRAIN_ITERS}it \[[0-9]+:[0-9]+.*loss=[0-9.]+" \
         | sort -u \
         | tail -n 3 \
-        | sed -E 's/(Epoch [0-9]+ \[Train\]): .*loss=([0-9.]+)/  \1  ->  train_loss=\2/'
+        | sed -E 's/(Epoch [0-9]+ \[Train\]): .*loss=([0-9.]+)/  第 \1 轮  ->  训练损失=\2/'
 
     echo ""
-    echo -e "${CYAN}  ── 最近 Epoch 验证 loss 概况 ──${NC}"
+    echo -e "${CYAN}  ── 最近已完成轮次的验证损失 ──${NC}"
     tr '\r' '\n' < "$LOG_FILE" \
         | grep -oE "Epoch [0-9]+ \[Val\]: ${VAL_ITERS}it \[[0-9]+:[0-9]+.*loss=[0-9.]+" \
         | sort -u \
         | tail -n 3 \
-        | sed -E 's/(Epoch [0-9]+ \[Val\]): .*loss=([0-9.]+)/  \1  ->  val_loss=\2/'
+        | sed -E 's/(Epoch [0-9]+ \[Val\]): .*loss=([0-9.]+)/  第 \1 轮  ->  验证损失=\2/'
 
     echo ""
     echo -e "  按 ${RED}Ctrl+C${NC} 停止监控"
